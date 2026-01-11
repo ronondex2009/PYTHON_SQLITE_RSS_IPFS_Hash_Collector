@@ -1,8 +1,9 @@
-#!/bin/env python3
+#!/usr/bin/python3
 import requests
 from bs4 import BeautifulSoup
 import sqlite3
 import time
+import re
 
 LOOP_INFINITE   = False # Set to true if you are not calling this program via cron or other means
 LOOP_WAIT       = 320    # Seconds to wait before update if set to LOOP_INFINITE
@@ -31,7 +32,7 @@ def fetch_recent_rss_entries():
 def convert_entry_xml_to_entry_tuple(entry):
     return (
         entry.id.get_text(),
-        entry.author.name,
+        entry.author.get_text(),
         entry.published.get_text(),
         entry.updated.get_text(),
         entry.title.get_text(),
@@ -41,10 +42,10 @@ def convert_entry_xml_to_entry_tuple(entry):
 def initialize_table(conn):
     cursor = conn.cursor()
     # table schema
-    if cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hashes';").fetchone() == None:
-        print("regenerating table schema")
+    if cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='posts';").fetchone() == None:
+        print("regenerating POSTS table schema")
         cursor.execute("""
-            CREATE TABLE hashes (
+            CREATE TABLE posts (
                 id VARCHAR(10) PRIMARY KEY,
                 author NVARCHAR(23),
                 published DATETIME,
@@ -53,18 +54,38 @@ def initialize_table(conn):
                 content TEXT
             )
         """)
+    if cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hashes';").fetchone() == None:
+        print("regenerating HASHES table schema")
+        cursor.execute("""
+            CREATE TABLE hashes (
+                id VARCHAR(10) REFERENCES posts(id),
+                hash VARCHAR(46)
+            )
+        """)
 
 
 def write_rss_entries_to_database(conn, entries):
     # parse the entries
-    entries_processed = map(convert_entry_xml_to_entry_tuple, entries)
-    map(lambda x: print(x), entries_processed)
+    entries_processed = []
+    for entry in entries:
+        entries_processed.append(convert_entry_xml_to_entry_tuple(entry))
+
+    # create hashes tuples
+    id_hash_tuples = []
+    for entry in entries_processed:
+        hashes = re.findall(r"[a-zA-Z1-9]{46}", entry[5])
+        for hash in hashes:
+            id_hash_tuples.append((entry[0], hash)) # insert (id, hash)
+
+    # Insert all of the posts into the database
     cursor = conn.cursor()
     cursor.executemany(
-        """ INSERT OR IGNORE INTO hashes (id, author, published, updated, title, content)
-            VALUES (?, ?, ?, ?, ?, ?);
+        """ INSERT OR IGNORE INTO posts (id, author, published, updated, title, content)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, entries_processed
         )
+    # Insert all of the post-id to hash entries into the database
+    cursor.executemany("INSERT OR IGNORE INTO hashes (id, hash) VALUES (?, ?)", id_hash_tuples)
 
 if __name__ == "__main__":
     conn = sqlite3.connect(DATABASE_PATH)
