@@ -5,7 +5,7 @@ import sqlite3
 import time
 
 LOOP_INFINITE   = False # Set to true if you are not calling this program via cron or other means
-LOOP_WAIT       = 60    # Seconds to wait before update if set to LOOP_INFINITE
+LOOP_WAIT       = 320    # Seconds to wait before update if set to LOOP_INFINITE
 DATABASE_PATH   = r"./IPFS_Hashes.db"
 RSS_FEED        = r"https://www.reddit.com/r/IPFS_Hashes/.rss"
 
@@ -61,7 +61,7 @@ def write_rss_entries_to_database(conn, entries):
     map(lambda x: print(x), entries_processed)
     cursor = conn.cursor()
     cursor.executemany(
-        """ INSERT INTO hashes (id, author, published, updated, title, content)
+        """ INSERT OR IGNORE INTO hashes (id, author, published, updated, title, content)
             VALUES (?, ?, ?, ?, ?, ?);
         """, entries_processed
         )
